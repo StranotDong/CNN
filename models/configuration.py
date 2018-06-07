@@ -99,6 +99,10 @@ class Config:
 			sys.exit('The number of conv layers mismatches between num_conv_layers and conv_paddings')
 
 
+		# whether to use batch normalization
+		self.batch_norm = hp.get('batch_norm', False)
+
+
 
 		# pool sizes
 		self.pool_sizes = hp.get('pool_sizes', [[2,2],[2,2]])		

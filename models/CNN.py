@@ -13,8 +13,9 @@ This file includes some cnn models
 
 """
 The basic model's structure is like this: conv_layers->fully_connected
-conv_layers: cov->RELU->max_pool->...->fully_connected
+conv_layers: cov->(batch_norm->)activation->max_pool
 fully_connect: hidden_layers->output_layer
+hidden_layers: linear->(batch_norm->)activation
 """
 class basic_model:
 
@@ -31,7 +32,7 @@ class basic_model:
 	Returns:
 		inputs: the inputs fed to the fully connected layers
 	'''
-	def conv_layers(self, inputs):
+	def conv_layers(self, inputs, is_training):
 		num_layers = self.config.num_conv_layers
 		kernel_sizes = self.config.conv_kernel_sizes
 		pool_sizes = self.config.pool_sizes
@@ -45,16 +46,26 @@ class basic_model:
 		with tf.name_scope('Conv_layers') as scope:
 			for i in range(num_layers):
 				# conv layer
-				conv_out = tf.layers.conv2d(
+				temp_out = tf.layers.conv2d(
 					inputs=inputs, 
 					filters=kernel_sizes[i][2], 
 					kernel_size=kernel_sizes[i][0:2], 
 					strides=self.config.conv_strides,
 					padding=self.config.conv_paddings[i],
 					name='conv'+str(i),
-					activation=tf.nn.relu,
 					kernel_initializer=init
 					)
+
+				# batch norm
+				if self.config.batch_norm:
+					temp_out = tf.layers.batch_normalization(
+						temp_out, 
+						training=is_training,
+						name='batch_norm'+str(i)
+						)
+
+				# activation
+				conv_out = tf.nn.relu(temp_out, name='conv_relu'+str(i))
 
 				# max pooling
 				inputs = tf.layers.max_pooling2d(
@@ -79,7 +90,7 @@ class basic_model:
 	Returns:
 		outputs: 1 X num_classes
 	'''
-	def fully_connected(self, inputs):
+	def fully_connected(self, inputs, is_training):
 		num_layers = self.config.num_hidden_layers
 		layer_sizes = self.config.hidden_layer_sizes
 		dense = inputs
@@ -94,13 +105,24 @@ class basic_model:
 			# hidden layers
 			if num_layers != 0:
 				for i in range(num_layers - 1):
-					dense = tf.layers.dense(
-						dense, # input
-						units=layer_sizes[i], 
-						name='hidden'+str(i),
-						activation=tf.nn.relu,
-						kernel_initializer=init
-						)
+					with tf.name_scope('Hidden') as scope1:
+						## Linear
+						temp_out = tf.layers.dense(
+							dense, # input
+							units=layer_sizes[i], 
+							name='linear'+str(i),
+							kernel_initializer=init
+							)
+						## batch normalization
+						if self.config.batch_norm:
+							temp_out = tf.layers.batch_normalization(
+								temp_out, 
+								training=is_training,
+								name='batch_norm'+str(i)
+								)
+						## activation
+						dense = tf.nn.relu(temp_out, name='fc_relu'+str(i))
+
 					# drop out #################################
 
 			# output layer
@@ -120,11 +142,11 @@ class basic_model:
 	Returns:
 		outputs: the data output from the baic_graph
 	'''
-	def basic_graph(self, inputs):		
-		conv_out = self.conv_layers(inputs)
+	def basic_graph(self, inputs, is_training):		
+		conv_out = self.conv_layers(inputs, is_training)
 		flat_size = conv_out.shape[1]*conv_out.shape[2]*conv_out.shape[3]
 		conv_flat = tf.reshape(conv_out, [-1, flat_size])
-		outputs = self.fully_connected(conv_flat)
+		outputs = self.fully_connected(conv_flat, is_training)
 
 		return outputs
 
@@ -136,6 +158,7 @@ class basic_model:
 	Returns:
 		X: placeholder for batch data
 		y: place holder for batch labels
+		is_training: placeholder to determine whether this forward is to train the model
 		correct_predictions: the number of correct predictions in one batch
 		accuracy: the accuracy along one batch
 		loss: total loss in one batch
@@ -151,12 +174,12 @@ class basic_model:
 		## labels:
 		y = tf.placeholder(tf.int64, [None])
 
-		# ## if this data feeding is used for training
-		# is_training = tf.placeholer(tf.bool)
+		## if this data feeding is used for training (we need this info when doing batch normalization)
+		is_training = tf.placeholder(tf.bool)
 
 
 		# 2. constructing the basic graph
-		logits = self.basic_graph(X)
+		logits = self.basic_graph(X, is_training)
 
 
 		# 3. have tensorflow compute accuracy
@@ -179,9 +202,19 @@ class basic_model:
 		global_step = tf.Variable(0, trainable=False)
 		## the optimizer
 		optimizer = tf.train.AdamOptimizer(self.config.learning_rate)
-		updates = optimizer.minimize(loss, global_step=global_step)
 
-		return X, y, correct_prediction, accuracy, loss, updates, global_step
+		## extra update ops for batch normalization
+		if self.config.batch_norm :
+			extra_update_ops = tf.get_collection(tf.GraphKeys.UPDATE_OPS)
+			with tf.control_dependencies(extra_update_ops):
+				### minimizing loss after moving average and moving variance update in batch normalization
+			    updates = optimizer.minimize(loss, global_step=global_step)
+		## no batch normalization
+		else:
+			updates = optimizer.minimize(loss, global_step=global_step)
+		
+
+		return X, y, is_training, correct_prediction, accuracy, loss, updates, global_step
 
 
 
@@ -210,7 +243,7 @@ class basic_model:
 
 		# construct the model
 		data_size = data.shape[1:]
-		X, y, _, accuracy, loss, updates, global_step = self.model(data_size)
+		X, y, is_training, _, accuracy, loss, updates, global_step = self.model(data_size)
 
 		# the batch size
 		batch_size = self.config.batch_size
@@ -267,8 +300,15 @@ class basic_model:
 			val_fetch = [loss, accuracy] 
 			val_dict = {
 			    		X: val_data,
-			    		y: val_labels
+			    		y: val_labels,
+			    		is_training: False
 			    	}
+			## for training set evaluation
+			whole_train_eval_dict = {
+				X: data,
+			    y: labels,
+			    is_training: False
+			}
 
 			# training starts
 			print("Training")
@@ -283,7 +323,8 @@ class basic_model:
 					# construct the feed dict
 					feed_dict = {
 						X: data[idx,:],
-						y: labels[idx]
+						y: labels[idx],
+						is_training: True
 					}	            						
 
 					# track the batch train stats
@@ -293,7 +334,7 @@ class basic_model:
 
 					# track the whole train data stats
 					if(is_whole_train_stats and step % self.config.whole_train_stats_every == 0):						
-						summary = sess.run(merged, feed_dict={X:data, y:labels})
+						summary = sess.run(merged, feed_dict=whole_train_eval_dict)
 						whole_train_summary_writer.add_summary(summary, step)
 
 					# track the validation stats
