@@ -3,15 +3,18 @@ import __future__
 import tensorflow as tf
 import numpy as np
 
-from models.hyper_parameters import Config
+from models.configuration import Config
 from cs231n.data_utils import load_CIFAR10
 from models.CNN import basic_model
 import matplotlib.pyplot as plt
 
 
 
+
+
+
 # Set all hyper parameters
-config = Config('hyperparameters.json')
+config = Config('config.json')
 # print(config.learning_rate)
 
 
@@ -55,19 +58,29 @@ X_train, y_train, X_val, y_val, X_test, y_test = get_CIFAR10_data()
 # print('Test data shape: ', X_test.shape)
 # print('Test labels shape: ', y_test.shape)
 
-
 model = basic_model(config)
 model_path = 'trained_models/basic_model/test.ckpt'
-model_path, losses = model.train(X_train, y_train, X_val, y_val, result_dir=model_path, track_losses=True)
+# track_losses = True
+model_path = model.train(
+	X_train, y_train, 
+	X_val, y_val, 
+	result_dir=model_path, 
+	)
 
-if(losses != None):
-	# plot losses		
-	plt.plot(losses)
-	plt.grid(True)
-	plt.title('Epoch 1 Loss')
-	plt.xlabel('minibatch number')
-	plt.ylabel('minibatch loss')
-	plt.show()
+# if(track_losses):
+# 	# plot losses		
+# 	# plt.plot(losses)
+# 	# plt.grid(True)
+# 	# plt.title('Epoch 1 Loss')
+# 	# plt.xlabel('minibatch number')
+# 	# plt.ylabel('minibatch loss')
+# 	# plt.show()
+
+# 	# use tensorboard to plot
+# 	## time stamp to name the file we want to store
+# 	now = datetime.utcnow().strftime("%Y%m%d%H%M%S")
+# 	root_logdir = "tf_logs"
+# 	logdir = "{}/run-{}/".format(root_logdir, now)
 
 
 

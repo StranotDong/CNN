@@ -1,3 +1,2 @@
 model_checkpoint_path: "test.ckpt"
-all_model_checkpoint_paths: "../../temp/my_model_epoch1.ckpt"
 all_model_checkpoint_paths: "test.ckpt"

@@ -1,0 +1,5 @@
+{
+	"print_every": 100,
+	"batch_train_stats_every": 1,
+	"val_every": 100
+}

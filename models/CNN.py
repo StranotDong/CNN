@@ -4,6 +4,8 @@ import tensorflow as tf
 import numpy as np
 import math
 import matplotlib.pyplot as plt
+import os
+from datetime import datetime
 
 """
 This file includes some cnn models
@@ -34,25 +36,28 @@ class basic_model:
 		kernel_sizes = self.config.conv_kernel_sizes
 		pool_sizes = self.config.pool_sizes
 
-		for i in range(num_layers):
-			# conv layer
-			conv_out = tf.layers.conv2d(
-				inputs=inputs, 
-				filters=kernel_sizes[i][2], 
-				kernel_size=kernel_sizes[i][0:2], 
-				strides=self.config.conv_strides,
-				padding=self.config.conv_paddings[i],
-				activation=tf.nn.relu
-				# initialization ###############################
-				)
+		with tf.name_scope('Conv_layers') as scope:
+			for i in range(num_layers):
+				# conv layer
+				conv_out = tf.layers.conv2d(
+					inputs=inputs, 
+					filters=kernel_sizes[i][2], 
+					kernel_size=kernel_sizes[i][0:2], 
+					strides=self.config.conv_strides,
+					padding=self.config.conv_paddings[i],
+					activation=tf.nn.relu,
+					name='conv'+str(i)
+					# initialization ###############################
+					)
 
-			# max pooling
-			inputs = tf.layers.max_pooling2d(
-				inputs=conv_out,
-				pool_size=pool_sizes[i],
-				strides=self.config.pool_strides[i],
-				padding=self.config.pool_paddings[i]
-				)
+				# max pooling
+				inputs = tf.layers.max_pooling2d(
+					inputs=conv_out,
+					pool_size=pool_sizes[i],
+					strides=self.config.pool_strides[i],
+					padding=self.config.pool_paddings[i],
+					name='max_pooling'+str(i)
+					)
 
 			# batch normalization ########################################			
 
@@ -72,24 +77,27 @@ class basic_model:
 		num_layers = self.config.num_hidden_layers
 		layer_sizes = self.config.hidden_layer_sizes
 		dense = inputs
+		
+		with tf.name_scope('Fully_connected') as scope:
+			# hidden layers
+			if num_layers != 0:
+				for i in range(num_layers - 1):
+					dense = tf.layers.dense(
+						dense, # input
+						units=layer_sizes[i], 
+						activation=tf.nn.relu,
+						name='hidden'+str(i)
+						# initialization ####################
+						)
+					# drop out #################################
 
-		# hidden layers
-		if num_layers != 0:
-			for i in range(num_layers - 1):
-				dense = tf.layers.dense(
-					dense, # input
-					units=layer_sizes[i], 
-					activation=tf.nn.relu
-					# initialization ####################
-					)
-				# drop out #################################
-
-		# output layer
-		outputs = tf.layers.dense(
-			dense, # input
-			units=self.config.num_classes,
-			# initialization ####################
-			)
+			# output layer
+			outputs = tf.layers.dense(
+				dense, # input
+				units=self.config.num_classes,
+				name='output'
+				# initialization ####################
+				)
 
 		return outputs
 
@@ -140,20 +148,21 @@ class basic_model:
 
 
 		# 3. have tensorflow compute accuracy
-		correct_prediction = tf.equal(tf.argmax(logits,1), y)
-		accuracy = tf.reduce_mean(tf.cast(correct_prediction, tf.float32))
-
+		with tf.name_scope('Accuracy') as scope:
+			correct_prediction = tf.equal(tf.argmax(logits,1), y)
+			accuracy = tf.reduce_mean(tf.cast(correct_prediction, tf.float32))
 
 		# 4. back propagation: the loss and the optimizer
 		## the loss
-		if(self.config.loss == 'hinge'):
-			# print(logits.shape)
-			loss = tf.losses.hinge_loss(
-				labels=tf.one_hot(y, self.config.num_classes), 
-				logits=logits
-				)
-		elif(self.config.loss == 'softmax'):
-			loss = tf.losses.sparse_softmax_cross_entropy(labels=y, logits=logits)
+		with tf.name_scope('Loss') as scope:			
+			if(self.config.loss == 'hinge'):
+				# print(logits.shape)
+				loss = tf.losses.hinge_loss(
+					labels=tf.one_hot(y, self.config.num_classes), 
+					logits=logits
+					)
+			elif(self.config.loss == 'softmax'):
+				loss = tf.losses.sparse_softmax_cross_entropy(labels=y, logits=logits)
 
 		global_step = tf.Variable(0, trainable=False)
 		## the optimizer
@@ -165,20 +174,24 @@ class basic_model:
 
 
 	'''
-	This function is used to train
+	This function is used to train. The check points will be stored in ckpt folder if needed. It will
+	do the validation after training if val_data and val_labels are not None.
 	Inputs:
 		data: total training data: shape is [number, length, width, depth]
 		labels: total training labels
 		val_data: validation data
 		val_labels: validation labels
 		result_dir: the directory for saving the trained model
-		track_losses: whether to track the first epoch losses
 
 	Returns:
 		result_path: the path that stores the trained model
-		losses: the last epoch losses tracked while training
 	'''
-	def train(self, data, labels, val_data, val_labels, result_dir = 'temp/final_model.ckpt', track_losses=False):
+	def train(
+			self, 
+			data, labels, 
+			val_data=None, val_labels=None, 
+			result_dir = 'temp/final_model.ckpt', 
+		):
 		 # shuffle indicies
 		train_indicies = np.arange(data.shape[0])
 		np.random.shuffle(train_indicies)
@@ -187,12 +200,51 @@ class basic_model:
 		data_size = data.shape[1:]
 		X, y, _, accuracy, loss, updates, global_step = self.model(data_size)
 
+		# the batch size
 		batch_size = self.config.batch_size
+		# the saver object for saving check points
 		saver = tf.train.Saver()
+		# whether print information in the training process
+		is_print = self.config.print_every > 0
+		# whether to track the one batch train stats
+		is_batch_train_stats = self.config.batch_train_stats_every > 0
+		# whether to track the whole train data stats
+		is_whole_train_stats = self.config.whole_train_stats_every > 0
+		# whether to do the validation in the process of training after certain epoches
+		is_val = self.config.val_every > 0
+		if is_val and (val_data is None or val_labels is None):
+			print("Can't do the validation because no validation data is provided.")
+		is_val = is_val and val_data is not None and val_labels is not None
+		# whether save check points in the process of training after certain epoches 
+		is_ckpt = self.config.ckpt_every > 0	
+
+
+		# keep track of train stats and validation stats and put them to tensor board		
+		if(is_batch_train_stats or is_whole_train_stats or is_val):	
+			acc_summary = tf.summary.scalar('ACCURACY', accuracy)
+			loss_summary = tf.summary.scalar('LOSS', loss)
+			merged = tf.summary.merge_all()
+			## file name and directory
+			now = datetime.utcnow().strftime("%Y%m%d%H%M%S")
+			root_logdir = "tf_logs"
+
+		# batch training stats tensor board file
+		if(is_batch_train_stats):			
+			logdir = "{}/batch_train_stats-{}/".format(root_logdir, now)
+			batch_train_summary_writer = tf.summary.FileWriter(logdir, tf.get_default_graph())
+
+		# whole train data stats tensor board file
+		if(is_whole_train_stats):			
+			logdir = "{}/whole_train_stats-{}/".format(root_logdir, now)
+			whole_train_summary_writer = tf.summary.FileWriter(logdir, tf.get_default_graph())
+
+		# validation stats tensor board file
+		if(is_val):			
+			logdir = "{}/val_stats-{}/".format(root_logdir, now)
+			val_summary_writer = tf.summary.FileWriter(logdir, tf.get_default_graph())
 
 		# run train process
 		with tf.Session() as sess:
-
 			# initialize
 			sess.run(tf.global_variables_initializer())
 			
@@ -208,8 +260,7 @@ class basic_model:
 
 			# training starts
 			print("Training")
-			# keep track of losses for the first epoch if needed
-			losses = []
+			step = 0
 			for e in range(self.config.epoch):
 				# make sure we iterate over the dataset once
 				for i in range(int(math.ceil(data.shape[0]/batch_size))):
@@ -221,43 +272,62 @@ class basic_model:
 					feed_dict = {
 						X: data[idx,:],
 						y: labels[idx]
-					}	            	
+					}	            						
+
+					# track the batch train stats
+					if(is_batch_train_stats and step % self.config.batch_train_stats_every == 0):						
+						summary = sess.run(merged, feed_dict=feed_dict)
+						batch_train_summary_writer.add_summary(summary, step)
+
+					# track the whole train data stats
+					if(is_whole_train_stats and step % self.config.whole_train_stats_every == 0):						
+						summary = sess.run(merged, feed_dict={X:data, y:labels})
+						whole_train_summary_writer.add_summary(summary, step)
+
+					# track the validation stats
+					if(is_val and step % self.config.val_every == 0):	            	
+						# val_loss, val_accuracy = sess.run(val_fetch, feed_dict=val_dict)
+						# print("Iteration {0}, Validation loss = {1:.3g} and accuracy of {2:.3g}"\
+						#       .format(step, val_loss,val_accuracy))
+						summary = sess.run(merged, feed_dict=val_dict)
+						val_summary_writer.add_summary(summary, step)
 
 					# run
-					loss, _, accuracy, global_step = sess.run(fetch, feed_dict=feed_dict)
-
-					##### tensor board ##################
-					if(track_losses and e == 0):
-						losses.append(loss)
-
+					batch_loss, _, batch_accuracy, step = sess.run(fetch, feed_dict=feed_dict)
+					iter_cnt = step - 1				
+					
 					# print stats for every n iteration
-					# print(global_step)
-					if(self.config.print_every > 0 and global_step % self.config.print_every == 0):
+					if(is_print and iter_cnt % self.config.print_every == 0):						
 						print("Iteration {0}: with minibatch training loss = {1:.3g} and accuracy of {2:.2g}"
-					  .format(global_step, loss, accuracy))
+					  .format(iter_cnt, batch_loss, batch_accuracy))
 
-				# validation after n epoches
-				if(self.config.val_every > 0 and (e+1) % self.config.val_every == 0):	            	
-					val_loss, val_accuracy = sess.run(val_fetch, feed_dict=val_dict)
-					print("Epoch {0}, Validation loss = {1:.3g} and accuracy of {2:.3g}"\
-					      .format(e+1, val_loss,val_accuracy))
-
-				# save check points after n epoches
-				if(self.config.ckpt_every > 0 and (e+1) % self.config.ckpt_every == 0):	            	
-					ckpt_path = saver.save(sess, "temp/my_model_epoch"+str(e+1)+".ckpt")
+					# save check points after n epoches
+					if not os.path.exists('ckpts'):
+						os.makedirs('ckpts')
+					if(is_ckpt and iter_cnt % self.config.ckpt_every == 0):	            	
+						ckpt_path = saver.save(sess, "ckpts/model_iter"+str(iter_cnt)+".ckpt")
 
 			# validation after training
-			val_loss, val_accuracy = sess.run(val_fetch, feed_dict=val_dict)
-			print("\nValidation\nValidation loss = {1:.3g} and accuracy of {2:.3g}"\
-			      .format(e+1, val_loss,val_accuracy))
+			if(val_data is not None and val_labels is not None):
+				val_loss, val_accuracy = sess.run(val_fetch, feed_dict=val_dict)
+				print("\nValidation\nValidation loss = {0:.3g} and accuracy of {1:.3g}"\
+				      .format(val_loss,val_accuracy))
+
+			# close the tensorboard file writer
+			if is_val:
+				summary = sess.run(merged, feed_dict=val_dict)
+				val_summary_writer.add_summary(summary, step)
+				val_summary_writer.close()
+			if is_batch_train_stats:
+				batch_train_summary_writer.close()
+			if is_whole_train_stats:
+				whole_train_summary_writer.close()
+				
 
 			# save the final results
 			result_path = saver.save(sess, result_dir)
 
-		if(track_losses):
-			return result_path, losses
-
-		return result_path, None
+		return result_path
 		            	
 		            
 		            	

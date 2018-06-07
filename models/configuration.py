@@ -15,13 +15,25 @@ class Config:
 	'''
 	def __init__(self, filename):
 		# should first go to the dir where includes main.py
-		with open(filename) as f:
-			dat = f.read()
-		hp = json.loads(dat)
+		try:
+			with open(filename) as f:
+				dat = f.read()
+			hp = json.loads(dat)
+		except FileNotFoundError:
+			hp = {}
 
+
+
+		'''
+		Optimizer related
+		'''
 		# learning rate
 		self.learning_rate = hp.get('learning_rate', 1e-3)
 
+
+		'''
+		Training related
+		'''
 		# number of classes
 		self.num_classes = hp.get('num_classes', 10)
 
@@ -31,62 +43,67 @@ class Config:
 		# batch size
 		self.batch_size = hp.get('batch_size', 64)
 
-		# print stats for every n iters, 0 for not print
-		self.print_every = hp.get('batch_size', 100)
 
-		# do the validation for every n epoches, 0 for not doing
+		'''
+		Logging related
+		'''
+		# print stats for every n iters, 0 for not print
+		self.print_every = hp.get('print_every', 100)
+
+		# track batch train losses and accuracy to tensor board for every n iters, 0 for not track
+		self.batch_train_stats_every = hp.get('batch_train_stats_every', 0)
+
+		# track the whole train data set stats to tensor board for every n iters, 0 for not track
+		self.whole_train_stats_every = hp.get('whole_train_stats_every', 0)
+
+		# do the validation (and save the stats to tensorboard) for every n iters, 0 for not doing
 		self.val_every = hp.get('val_every', 0)
 
-		# save check points for every n epoches, 0 for not saving
+		# save check points for every n iters, 0 for not saving
 		self.ckpt_every = hp.get('ckpt_every', 0)
 
 
 
+		'''
+		Structure related
+		'''
 		# number of convolutional layers
 		self.num_conv_layers = hp.get('num_conv_layers', 2)
 
 		# convolutional kernel sizes: 
 		# [kernel_length, kernel_width, num_filters]
 		self.conv_kernel_sizes = hp.get('conv_kernel_sizes', [[5,5,32],[5,5,64]])
-
 		if self.num_conv_layers != len(self.conv_kernel_sizes):
 			sys.exit('The number of conv layers mismatches between num_conv_layers and conv_kernel_sizes')
-
 		if self.num_conv_layers != 0 and len(self.conv_kernel_sizes[0]) != 3:
 			sys.exit("num_conv_layers: format error")
 
 		# stride for each conv_layer
 		self.conv_strides = hp.get('strides', [1,1])
-
 		if self.num_conv_layers != len(self.conv_strides):
 			sys.exit('The number of conv layers mismatches between num_conv_layers and conv_strides')
 
 		# conv padding type (valid or same)
 		self.conv_paddings = hp.get('conv_padding', ['same', 'same'])
-
 		if self.num_conv_layers != len(self.conv_paddings):
 			sys.exit('The number of conv layers mismatches between num_conv_layers and conv_paddings')
 
 
 
 		# pool sizes
-		self.pool_sizes = hp.get('pool_sizes', [[2,2],[2,2]])
-		
+		self.pool_sizes = hp.get('pool_sizes', [[2,2],[2,2]])		
 		if self.num_conv_layers != len(self.pool_sizes):
 			sys.exit('The number of conv layers mismatches between num_conv_layers and pool_sizes')
-
 		if self.num_conv_layers != 0 and len(self.pool_sizes[0]) != 2:
 			sys.exit('strides: format error')
 
 		# pool strides
 		self.pool_strides = hp.get('pool_strides', [2,2])
-
 		if self.num_conv_layers != len(self.pool_strides):
 			sys.exit('The number of conv layers mismatches between num_conv_layers and pool_strides')
 
 		# pool padding type (valid or same)
-		self.pool_paddings = hp.get('pool_padding', ['valid', 'valid'])
-		
+		self.pool_paddings = hp.get('pool_padding', ['valid', 'valid'])		
 		if self.num_conv_layers != len(self.pool_paddings):
 			sys.exit('The number of conv layers mismatches between num_conv_layers and pool_paddings')
 
@@ -97,7 +114,6 @@ class Config:
 
 		# the size of hidden layers in fully connected layers 
 		self.hidden_layer_sizes = hp.get('hidden_layer_sizes', [1024])
-
 		if self.num_hidden_layers != len(self.hidden_layer_sizes):
 			sys.exit('The number of hidden layers mismatches between num_hidden_layers and hidden_layer_sizes')
 
