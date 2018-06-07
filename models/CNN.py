@@ -36,6 +36,12 @@ class basic_model:
 		kernel_sizes = self.config.conv_kernel_sizes
 		pool_sizes = self.config.pool_sizes
 
+		# init related
+		init = None # default initializer is Xavier uniform
+		init_type = self.config.conv_init.lower()
+		if init_type == 'he':
+			init = tf.contrib.layers.variance_scaling_initializer()
+
 		with tf.name_scope('Conv_layers') as scope:
 			for i in range(num_layers):
 				# conv layer
@@ -45,9 +51,9 @@ class basic_model:
 					kernel_size=kernel_sizes[i][0:2], 
 					strides=self.config.conv_strides,
 					padding=self.config.conv_paddings[i],
+					name='conv'+str(i),
 					activation=tf.nn.relu,
-					name='conv'+str(i)
-					# initialization ###############################
+					kernel_initializer=init
 					)
 
 				# max pooling
@@ -77,7 +83,13 @@ class basic_model:
 		num_layers = self.config.num_hidden_layers
 		layer_sizes = self.config.hidden_layer_sizes
 		dense = inputs
-		
+
+		# init related
+		init = None # default initializer is Xavier uniform
+		init_type = self.config.fc_init.lower()	
+		if init_type == 'he':
+			init = tf.contrib.layers.variance_scaling_initializer()
+					
 		with tf.name_scope('Fully_connected') as scope:
 			# hidden layers
 			if num_layers != 0:
@@ -85,9 +97,9 @@ class basic_model:
 					dense = tf.layers.dense(
 						dense, # input
 						units=layer_sizes[i], 
+						name='hidden'+str(i),
 						activation=tf.nn.relu,
-						name='hidden'+str(i)
-						# initialization ####################
+						kernel_initializer=init
 						)
 					# drop out #################################
 
@@ -95,8 +107,8 @@ class basic_model:
 			outputs = tf.layers.dense(
 				dense, # input
 				units=self.config.num_classes,
-				name='output'
-				# initialization ####################
+				name='output',
+				kernel_initializer=init
 				)
 
 		return outputs
@@ -148,7 +160,7 @@ class basic_model:
 
 
 		# 3. have tensorflow compute accuracy
-		with tf.name_scope('Accuracy') as scope:
+		with tf.name_scope('Eval') as scope:
 			correct_prediction = tf.equal(tf.argmax(logits,1), y)
 			accuracy = tf.reduce_mean(tf.cast(correct_prediction, tf.float32))
 

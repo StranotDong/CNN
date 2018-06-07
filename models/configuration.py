@@ -43,6 +43,16 @@ class Config:
 		# batch size
 		self.batch_size = hp.get('batch_size', 64)
 
+		'''
+		Initialization
+		Three types provided: Xavier uniform and HE, default is Xavier uniform
+		'''
+		# weight initializer in conv layers
+		self.conv_init = hp.get('conv_init', 'Xavier')
+
+		# weight initializer in full connected layers
+		self.fc_init = hp.get('fc_init', 'Xavier')
+
 
 		'''
 		Logging related
