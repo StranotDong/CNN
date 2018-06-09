@@ -26,9 +26,27 @@ class Config:
 
 		'''
 		Optimizer related
+		Adam optimizer and exponential learning rate decay
 		'''
-		# learning rate
+		# learning rate 
 		self.learning_rate = hp.get('learning_rate', 1e-3)
+
+		# decay steps
+		self.decay_steps = hp.get('decay_steps', 10000)
+
+		# decay rate
+		self.decay_rate = hp.get('decay_rate', 0.1)
+
+		# track the learning rate for every n iters, 0 for not track
+		self.track_lr_every = hp.get('track_lr_every', 0)
+
+		# Adam hyperparam: beta1, beta2, epsilon
+		self.adam_beta1 = hp.get('adam_beta1', 0.9)
+		self.adam_beta2 = hp.get('adam_beta2', 0.999)
+		self.adam_epsilon = hp.get('adam_epsilon', 1e-8)
+
+
+
 
 
 		'''
@@ -101,6 +119,9 @@ class Config:
 
 		# whether to use batch normalization
 		self.batch_norm = hp.get('batch_norm', False)
+
+		# the smoothing term in batch normalization
+		self.bn_epsilon = hp.get('bn_epsilon', 0.001)
 
 
 

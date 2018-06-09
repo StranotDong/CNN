@@ -16,13 +16,21 @@ The basic model's structure is like this: conv_layers->fully_connected
 conv_layers: cov->(batch_norm->)activation->max_pool
 fully_connect: hidden_layers->output_layer
 hidden_layers: linear->(batch_norm->)activation
+
+Using exponential learning rate decay
 """
 class basic_model:
 
-	def __init__(self, config):
+	def __init__(self, config, rst_folder, model_name):
+		# reset the graph
+		tf.reset_default_graph()
 		# get all hyper-parameters
 		self.config = config
-
+		# the file to save the final model
+		self.rst_path = rst_folder + model_name
+		if not os.path.exists(rst_folder):
+			os.makedirs(rst_folder)
+		
 
 	'''
 	This function constructs the convlutional layers
@@ -61,11 +69,12 @@ class basic_model:
 					temp_out = tf.layers.batch_normalization(
 						temp_out, 
 						training=is_training,
+						epsilon=self.config.bn_epsilon,
 						name='batch_norm'+str(i)
 						)
 
 				# activation
-				conv_out = tf.nn.relu(temp_out, name='conv_relu'+str(i))
+				conv_out = tf.nn.relu(temp_out, name='relu_in_conv'+str(i))
 
 				# max pooling
 				inputs = tf.layers.max_pooling2d(
@@ -118,10 +127,11 @@ class basic_model:
 							temp_out = tf.layers.batch_normalization(
 								temp_out, 
 								training=is_training,
+								epsilon=self.config.bn_epsilon,
 								name='batch_norm'+str(i)
 								)
 						## activation
-						dense = tf.nn.relu(temp_out, name='fc_relu'+str(i))
+						dense = tf.nn.relu(temp_out, name='relu_in_fc'+str(i))
 
 					# drop out #################################
 
@@ -129,7 +139,7 @@ class basic_model:
 			outputs = tf.layers.dense(
 				dense, # input
 				units=self.config.num_classes,
-				name='output',
+				name='Output',
 				kernel_initializer=init
 				)
 
@@ -163,19 +173,20 @@ class basic_model:
 		accuracy: the accuracy along one batch
 		loss: total loss in one batch
 		updates: backward propagation related
+		learning_rate: current learning rate
 	'''
 	def model(self, data_size):
 		# 1. Deciding the placeholders
 		## input:
 		data_length, data_width, data_depth = data_size # input size
 		X = tf.placeholder(tf.float32, 
-			[None, data_length, data_width, data_depth]) # None to match the batch size
+			[None, data_length, data_width, data_depth],name='X') # None to match the batch size
 
 		## labels:
-		y = tf.placeholder(tf.int64, [None])
+		y = tf.placeholder(tf.int64, [None],name='y')
 
 		## if this data feeding is used for training (we need this info when doing batch normalization)
-		is_training = tf.placeholder(tf.bool)
+		is_training = tf.placeholder(tf.bool, name='is_training')
 
 
 		# 2. constructing the basic graph
@@ -184,8 +195,8 @@ class basic_model:
 
 		# 3. have tensorflow compute accuracy
 		with tf.name_scope('Eval') as scope:
-			correct_prediction = tf.equal(tf.argmax(logits,1), y)
-			accuracy = tf.reduce_mean(tf.cast(correct_prediction, tf.float32))
+			correct_prediction = tf.equal(tf.argmax(logits,1), y, name='correct')
+			accuracy = tf.reduce_mean(tf.cast(correct_prediction, tf.float32), name='accuracy')
 
 		# 4. back propagation: the loss and the optimizer
 		## the loss
@@ -199,9 +210,24 @@ class basic_model:
 			elif(self.config.loss == 'softmax'):
 				loss = tf.losses.sparse_softmax_cross_entropy(labels=y, logits=logits)
 
+		## global_step
 		global_step = tf.Variable(0, trainable=False)
+
+		## learning rate
+		learning_rate = tf.train.exponential_decay(
+			self.config.learning_rate, 
+			global_step,
+			self.config.decay_steps, 
+			self.config.decay_rate
+			)
+
 		## the optimizer
-		optimizer = tf.train.AdamOptimizer(self.config.learning_rate)
+		optimizer = tf.train.AdamOptimizer(
+			learning_rate,
+			beta1=self.config.adam_beta1,
+			beta2=self.config.adam_beta2,
+			epsilon=self.config.adam_epsilon
+			)
 
 		## extra update ops for batch normalization
 		if self.config.batch_norm :
@@ -212,9 +238,20 @@ class basic_model:
 		## no batch normalization
 		else:
 			updates = optimizer.minimize(loss, global_step=global_step)
+
+		placeholder_dict = {'X':X, 'y':y, 'is_training':is_training}
+		updated_node_dict = {
+			'correct_prediction':correct_prediction, 
+			'accuracy': accuracy, 
+			'loss':loss,
+			'updates': updates,
+			'global_step': global_step,
+			'learning_rate': learning_rate
+			}
+
 		
 
-		return X, y, is_training, correct_prediction, accuracy, loss, updates, global_step
+		return placeholder_dict, updated_node_dict
 
 
 
@@ -226,7 +263,6 @@ class basic_model:
 		labels: total training labels
 		val_data: validation data
 		val_labels: validation labels
-		result_dir: the directory for saving the trained model
 
 	Returns:
 		result_path: the path that stores the trained model
@@ -234,8 +270,7 @@ class basic_model:
 	def train(
 			self, 
 			data, labels, 
-			val_data=None, val_labels=None, 
-			result_dir = 'temp/final_model.ckpt', 
+			val_data=None, val_labels=None,  
 		):
 		 # shuffle indicies
 		train_indicies = np.arange(data.shape[0])
@@ -243,12 +278,22 @@ class basic_model:
 
 		# construct the model
 		data_size = data.shape[1:]
-		X, y, is_training, _, accuracy, loss, updates, global_step = self.model(data_size)
+		placeholder_dict, updated_node_dict = self.model(data_size)
+
+		X = placeholder_dict['X'] 
+		y = placeholder_dict['y']
+		is_training = placeholder_dict['is_training']
+		accuracy = updated_node_dict['accuracy'] 
+		loss = updated_node_dict['loss']
+		updates = updated_node_dict['updates']
+		global_step = updated_node_dict['global_step']
+		learning_rate = updated_node_dict['learning_rate']
 
 		# the batch size
 		batch_size = self.config.batch_size
 		# the saver object for saving check points
 		saver = tf.train.Saver()
+	
 		# whether print information in the training process
 		is_print = self.config.print_every > 0
 		# whether to track the one batch train stats
@@ -260,18 +305,19 @@ class basic_model:
 		if is_val and (val_data is None or val_labels is None):
 			print("Can't do the validation because no validation data is provided.")
 		is_val = is_val and val_data is not None and val_labels is not None
+		# whether to track learning rate in the training process
+		is_lr = self.config.track_lr_every > 0
 		# whether save check points in the process of training after certain epoches 
 		is_ckpt = self.config.ckpt_every > 0	
 
 
+		now = datetime.utcnow().strftime("%Y%m%d%H%M%S")
+		root_logdir = "tf_logs" # the root dir that stores tensor board files
 		# keep track of train stats and validation stats and put them to tensor board		
 		if(is_batch_train_stats or is_whole_train_stats or is_val):	
 			acc_summary = tf.summary.scalar('ACCURACY', accuracy)
 			loss_summary = tf.summary.scalar('LOSS', loss)
-			merged = tf.summary.merge_all()
-			## file name and directory
-			now = datetime.utcnow().strftime("%Y%m%d%H%M%S")
-			root_logdir = "tf_logs"
+			merged = tf.summary.merge_all()			
 
 		# batch training stats tensor board file
 		if(is_batch_train_stats):			
@@ -287,6 +333,12 @@ class basic_model:
 		if(is_val):			
 			logdir = "{}/val_stats-{}/".format(root_logdir, now)
 			val_summary_writer = tf.summary.FileWriter(logdir, tf.get_default_graph())
+
+		# keep track of learning rate
+		if is_lr:
+			lr_summary = tf.summary.scalar('Learning rate', learning_rate)
+			logdir = "{}/lr_stats-{}/".format(root_logdir, now)
+			lr_summary_writer = tf.summary.FileWriter(logdir, tf.get_default_graph())
 
 		# run train process
 		with tf.Session() as sess:
@@ -345,6 +397,12 @@ class basic_model:
 						summary = sess.run(merged, feed_dict=val_dict)
 						val_summary_writer.add_summary(summary, step)
 
+					# track the learning rate
+					# track the whole train data stats
+					if(is_lr and step % self.config.track_lr_every == 0):						
+						summary = lr_summary.eval(feed_dict=feed_dict)
+						lr_summary_writer.add_summary(summary, step)
+
 					# run
 					batch_loss, _, batch_accuracy, step = sess.run(fetch, feed_dict=feed_dict)
 					iter_cnt = step - 1				
@@ -378,11 +436,45 @@ class basic_model:
 				
 
 			# save the final results
-			result_path = saver.save(sess, result_dir)
+			saver.save(sess, self.rst_path)
 
-		return result_path
-		            	
-		            
+
+
+	'''
+	This function is used for prediction. Can predict multiple data at the same time
+	The shape of the data is (batch_size, length, width, depth)
+	'''           	
+	def predict(self, data):	
+		with tf.Session() as sess:
+			saver = tf.train.import_meta_graph(self.rst_path+'.meta')
+			saver.restore(sess, self.rst_path)
+			graph = tf.get_default_graph()
+			X = graph.get_tensor_by_name("X:0")
+			is_training = graph.get_tensor_by_name("is_training:0")
+			logits = graph.get_tensor_by_name("Fully_connected/Output/BiasAdd:0")
+
+			one_hot_rst = logits.eval({X:data, is_training:False})
+
+		return np.argmax(one_hot_rst,1)
+
+	'''
+	This function is used for evaluation
+	'''           	
+	def evaluate(self, data, labels):
+		
+		with tf.Session() as sess:
+			saver = tf.train.import_meta_graph(self.rst_path+'.meta')
+			saver.restore(sess, self.rst_path)
+			graph = tf.get_default_graph()
+			X = graph.get_tensor_by_name("X:0")
+			y = graph.get_tensor_by_name("y:0")
+			is_training = graph.get_tensor_by_name("is_training:0")
+			accuracy = graph.get_tensor_by_name("Eval/accuracy:0")
+
+			rst = accuracy.eval({X:data, y:labels, is_training:False})
+
+		return rst
+
 		            	
 
 

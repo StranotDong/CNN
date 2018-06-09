@@ -1,0 +1,5 @@
+{
+	"batch_train_stats_every": 1,
+	"batch_norm": true,
+	"learning_rate": 5e-3
+}

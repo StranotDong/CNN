@@ -9,15 +9,6 @@ from models.CNN import basic_model
 import matplotlib.pyplot as plt
 
 
-
-
-
-
-# Set all hyper parameters
-config = Config('config.json')
-# print(config.learning_rate)
-
-
 # Get the data
 def get_CIFAR10_data(num_training=49000, num_validation=1000, num_test=10000):
     """
@@ -50,6 +41,7 @@ def get_CIFAR10_data(num_training=49000, num_validation=1000, num_test=10000):
 
 
 # Invoke the above function to get our data.
+# X_train, y_train, X_val, y_val, X_test, y_test = get_CIFAR10_data(num_training=1000,num_validation=10, num_test=10)
 X_train, y_train, X_val, y_val, X_test, y_test = get_CIFAR10_data()
 # print('Train data shape: ', X_train.shape)
 # print('Train labels shape: ', y_train.shape)
@@ -58,35 +50,33 @@ X_train, y_train, X_val, y_val, X_test, y_test = get_CIFAR10_data()
 # print('Test data shape: ', X_test.shape)
 # print('Test labels shape: ', y_test.shape)
 
-model = basic_model(config)
-model_path = 'trained_models/basic_model/test.ckpt'
-# track_losses = True
-model_path = model.train(
-	X_train, y_train, 
-	X_val, y_val, 
-	result_dir=model_path, 
-	)
 
-# if(track_losses):
-# 	# plot losses		
-# 	# plt.plot(losses)
-# 	# plt.grid(True)
-# 	# plt.title('Epoch 1 Loss')
-# 	# plt.xlabel('minibatch number')
-# 	# plt.ylabel('minibatch loss')
-# 	# plt.show()
+# Set all hyper parameters
+models = []
+for i in range(1):
+    config = Config('config_files/config_lr{0:s}.json'.format(str(i)))
+    model_folder = 'trained_models/basic_model'
+    filename = 'test{0:s}.ckpt'.format(str(i))
 
-# 	# use tensorboard to plot
-# 	## time stamp to name the file we want to store
-# 	now = datetime.utcnow().strftime("%Y%m%d%H%M%S")
-# 	root_logdir = "tf_logs"
-# 	logdir = "{}/run-{}/".format(root_logdir, now)
+    models.append(basic_model(config, model_folder, filename))
+    
+    model_path = models[i].train(
+    	X_train, y_train, 
+    	X_val, y_val, 
+    	)
+
+# for i in range(2):
+#     acc = models[i].evaluate(X_val, y_val)
+#     print(acc)
+
+#     pred = models[i].predict(X_val)
+#     print(pred)
 
 
 
 """
-1. estimator
-2. tensor board
-3. verbosity
-4. cpu, gpu
+1 regularization
+2 grid search, random search
+3. transfer learning
+4. cpu, gpu, multithread
 """

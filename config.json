@@ -2,5 +2,7 @@
 	"print_every": 100,
 	"batch_train_stats_every": 1,
 	"val_every": 100,
-	"batch_norm": true
+	"batch_norm": true,
+	"decay_steps": 100,
+	"track_lr_every": 100
 }
