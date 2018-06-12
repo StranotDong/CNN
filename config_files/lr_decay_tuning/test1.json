@@ -1,0 +1,1 @@
+{"epoch": 5, "val_every": 500, "batch_train_stats_every": 1, "batch_norm": true, "decay_steps": 1000}

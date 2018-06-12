@@ -154,6 +154,21 @@ class Config:
 
 
 
+		# whether to use dropout
+		self.dropout = hp.get('dropout', False)
+
+		# dropout rate
+		self.dropout_rate = hp.get('dropout_rate', 0.5)
+
+		# whether to use l1 reg and/or l2 reg
+		self.l1_reg = hp.get('l1_reg', False)
+		self.l2_reg = hp.get('l2_reg', False)
+
+		# l1 and l2 regularization
+		self.reg_lambda1 = hp.get('reg_lambda1', 1.0)
+		self.reg_lambda2 = hp.get('reg_lambda2', 1.0)
+
+
 		# loss type (hinge or softmax)
 		self.loss = hp.get('loss', 'hinge')
 		if self.loss != 'hinge' and self.loss != 'softmax':

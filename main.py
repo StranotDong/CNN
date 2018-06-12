@@ -54,8 +54,8 @@ X_train, y_train, X_val, y_val, X_test, y_test = get_CIFAR10_data()
 # Set all hyper parameters
 models = []
 for i in range(1):
-    config = Config('config_files/config_lr{0:s}.json'.format(str(i)))
-    model_folder = 'trained_models/basic_model'
+    config = Config('config_files/reg_tuning/test.json')
+    model_folder = 'trained_models/basic_model/tuning_reg/'
     filename = 'test{0:s}.ckpt'.format(str(i))
 
     models.append(basic_model(config, model_folder, filename))
@@ -64,6 +64,17 @@ for i in range(1):
     	X_train, y_train, 
     	X_val, y_val, 
     	)
+
+# config = Config('config.json')
+# model_folder = 'trained_models/basic_model'
+# filename = 'test.ckpt'
+
+# model = basic_model(config, model_folder, filename)
+
+# model_path = model.train(
+#     X_train, y_train, 
+#     X_val, y_val, 
+#     )
 
 # for i in range(2):
 #     acc = models[i].evaluate(X_val, y_val)
@@ -75,8 +86,8 @@ for i in range(1):
 
 
 """
-1 regularization
-2 grid search, random search
+1 data augmentation
+2 grid search, random search, oscar
 3. transfer learning
 4. cpu, gpu, multithread
 """

@@ -30,20 +30,60 @@ class basic_model:
 		self.rst_path = rst_folder + model_name
 		if not os.path.exists(rst_folder):
 			os.makedirs(rst_folder)
-		
+	
+	def _conv_layer(self, inputs, i, is_training, init=None, reg=None):
+		kernel_sizes = self.config.conv_kernel_sizes
+		pool_sizes = self.config.pool_sizes
+
+		with tf.name_scope('conv_layer'+str(i)) as scope:
+			# conv layer
+			temp_out = tf.layers.conv2d(
+				inputs=inputs, 
+				filters=kernel_sizes[i][2], 
+				kernel_size=kernel_sizes[i][0:2], 
+				strides=self.config.conv_strides,
+				padding=self.config.conv_paddings[i],
+				name='conv'+str(i),
+				kernel_initializer=init,
+				kernel_regularizer=reg
+				)
+
+			# batch norm
+			if self.config.batch_norm:
+				temp_out = tf.layers.batch_normalization(
+					temp_out, 
+					training=is_training,
+					epsilon=self.config.bn_epsilon,
+					name='batch_norm_in_conv'+str(i)
+					)
+
+			# activation
+			conv_out = tf.nn.relu(temp_out, name='relu_in_conv'+str(i))
+
+			# max pooling
+			inputs = tf.layers.max_pooling2d(
+				inputs=conv_out,
+				pool_size=pool_sizes[i],
+				strides=self.config.pool_strides[i],
+				padding=self.config.pool_paddings[i],
+				name='max_pooling'+str(i)
+				)
+
+		return inputs
+
 
 	'''
 	This function constructs the convlutional layers
 	Inputs: 
 		inputs: the data fed in
+		is_training: whether this run is for training purpose
 
 	Returns:
 		inputs: the inputs fed to the fully connected layers
 	'''
 	def conv_layers(self, inputs, is_training):
 		num_layers = self.config.num_conv_layers
-		kernel_sizes = self.config.conv_kernel_sizes
-		pool_sizes = self.config.pool_sizes
+		
 
 		# init related
 		init = None # default initializer is Xavier uniform
@@ -51,43 +91,77 @@ class basic_model:
 		if init_type == 'he':
 			init = tf.contrib.layers.variance_scaling_initializer()
 
-		with tf.name_scope('Conv_layers') as scope:
+		# regularizer related
+		reg = None
+		l1_reg = self.config.l1_reg
+		l2_reg = self.config.l2_reg
+		if l1_reg and l2_reg:
+			reg = tf.contrib.layers.l1_l2_regularizer(
+				scale_l1=self.config.reg_lambda1,
+    			scale_l2=self.config.reg_lambda2,
+    			)
+		elif l1_reg and not l2_reg:
+			reg = tf.contrib.layers.l1_regularizer(scale=self.config.reg_lambda1)
+		elif l2_reg and not l1_reg:
+			reg = tf.contrib.layers.l2_regularizer(scale=self.config.reg_lambda2)
+
+
+		with tf.name_scope('Conv_Layers') as scope:
 			for i in range(num_layers):
-				# conv layer
-				temp_out = tf.layers.conv2d(
-					inputs=inputs, 
-					filters=kernel_sizes[i][2], 
-					kernel_size=kernel_sizes[i][0:2], 
-					strides=self.config.conv_strides,
-					padding=self.config.conv_paddings[i],
-					name='conv'+str(i),
-					kernel_initializer=init
-					)
-
-				# batch norm
-				if self.config.batch_norm:
-					temp_out = tf.layers.batch_normalization(
-						temp_out, 
-						training=is_training,
-						epsilon=self.config.bn_epsilon,
-						name='batch_norm'+str(i)
-						)
-
-				# activation
-				conv_out = tf.nn.relu(temp_out, name='relu_in_conv'+str(i))
-
-				# max pooling
-				inputs = tf.layers.max_pooling2d(
-					inputs=conv_out,
-					pool_size=pool_sizes[i],
-					strides=self.config.pool_strides[i],
-					padding=self.config.pool_paddings[i],
-					name='max_pooling'+str(i)
-					)
-
-			# batch normalization ########################################			
+				inputs = self._conv_layer(
+					inputs, 
+					i, 
+					is_training, 
+					init=init, 
+					reg=reg
+					)		
 
 		return inputs
+
+
+	'''
+	This function is one hidden layer in fully connected layers
+	Inputs:
+		inputs: the data feed in
+		i: the ith hidden layers
+		is_training: whether this run is for training purpose
+		init: initializer
+		reg: regularizer
+	'''
+	def _hidden_layer(self, inputs, i, is_training, init=None, reg=None):
+		layer_sizes = self.config.hidden_layer_sizes
+		with tf.name_scope('Hidden'+str(i)) as scope1:
+			## Linear
+			temp_out = tf.layers.dense(
+				inputs, # input
+				units=layer_sizes[i], 
+				name='linear'+str(i),	
+				kernel_initializer=init, 
+				kernel_regularizer=reg						
+				)
+
+			## batch normalization
+			if self.config.batch_norm:
+				temp_out = tf.layers.batch_normalization(
+					temp_out, 
+					training=is_training,
+					epsilon=self.config.bn_epsilon,
+					name='batch_norm_in_fc'+str(i)
+					)
+
+			## activation
+			dense = tf.nn.relu(temp_out, name='relu_in_fc'+str(i))
+
+			## dropout
+			if self.config.dropout:
+				dense = tf.layers.dropout(
+						inputs=dense, 
+						rate=self.config.dropout_rate, 
+						training=is_training,
+						name='dropout'+str(i)
+					)
+
+		return dense
 
 
 	'''
@@ -95,52 +169,55 @@ class basic_model:
 	Inputs:
 		inputs: 1 X flatted_conv_layer_output_dimension
 		W: num_layers X flatted_conv_layer_output_dimension X this_layer_output_dimension
+		is_training: whether this run is for training purpose
 
 	Returns:
 		outputs: 1 X num_classes
 	'''
 	def fully_connected(self, inputs, is_training):
 		num_layers = self.config.num_hidden_layers
-		layer_sizes = self.config.hidden_layer_sizes
+		
 		dense = inputs
 
 		# init related
-		init = None # default initializer is Xavier uniform
+		init = None
 		init_type = self.config.fc_init.lower()	
 		if init_type == 'he':
 			init = tf.contrib.layers.variance_scaling_initializer()
-					
-		with tf.name_scope('Fully_connected') as scope:
-			# hidden layers
-			if num_layers != 0:
-				for i in range(num_layers - 1):
-					with tf.name_scope('Hidden') as scope1:
-						## Linear
-						temp_out = tf.layers.dense(
-							dense, # input
-							units=layer_sizes[i], 
-							name='linear'+str(i),
-							kernel_initializer=init
-							)
-						## batch normalization
-						if self.config.batch_norm:
-							temp_out = tf.layers.batch_normalization(
-								temp_out, 
-								training=is_training,
-								epsilon=self.config.bn_epsilon,
-								name='batch_norm'+str(i)
-								)
-						## activation
-						dense = tf.nn.relu(temp_out, name='relu_in_fc'+str(i))
 
-					# drop out #################################
+		# regularizer related
+		reg = None
+		l1_reg = self.config.l1_reg
+		l2_reg = self.config.l2_reg
+		if l1_reg and l2_reg:
+			reg = tf.contrib.layers.l1_l2_regularizer(
+				scale_l1=self.config.reg_lambda1,
+    			scale_l2=self.config.reg_lambda2,
+    			)
+		elif l1_reg and not l2_reg:
+			reg = tf.contrib.layers.l1_regularizer(scale=self.config.reg_lambda1)
+		elif l2_reg and not l1_reg:
+			reg = tf.contrib.layers.l2_regularizer(scale=self.config.reg_lambda2)
+
+		# define the initializer and regularizer of fully connected layers
+		with tf.name_scope('Fully_connected') as scope:					
+			# hidden layers
+			for i in range(num_layers):
+				self._hidden_layer(
+					dense, 
+					i,
+					is_training, 
+					init=init, 
+					reg=reg
+					)
 
 			# output layer
 			outputs = tf.layers.dense(
 				dense, # input
 				units=self.config.num_classes,
 				name='Output',
-				kernel_initializer=init
+				kernel_initializer=init, 
+				kernel_regularizer=reg
 				)
 
 		return outputs
