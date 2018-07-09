@@ -1,0 +1,1 @@
+{"epoch": 1, "val_every": 500, "batch_train_stats_every": 1, "batch_norm": true, "dropout": true, "num_hidden_layers": 0, "hidden_layer_sizes": []}

@@ -5,7 +5,7 @@ import numpy as np
 
 from models.configuration import Config
 from cs231n.data_utils import load_CIFAR10
-from models.CNN import basic_model
+from models.CNN import basic_model, transfer_learning_model
 import matplotlib.pyplot as plt
 
 
@@ -51,19 +51,21 @@ X_train, y_train, X_val, y_val, X_test, y_test = get_CIFAR10_data()
 # print('Test labels shape: ', y_test.shape)
 
 
-# Set all hyper parameters
-models = []
-for i in range(1):
-    config = Config('config_files/reg_tuning/test.json')
-    model_folder = 'trained_models/basic_model/tuning_reg/'
-    filename = 'test{0:s}.ckpt'.format(str(i))
+"""
+training
+"""
+# models = []
+# for i in range(1):
+#     config = Config('config_files/reg_tuning/test.json')
+#     model_folder = 'trained_models/basic_model/tuning_reg/'
+#     filename = 'test{0:s}.ckpt'.format(str(i))
 
-    models.append(basic_model(config, model_folder, filename))
+#     models.append(basic_model(config, model_folder, filename))
     
-    model_path = models[i].train(
-    	X_train, y_train, 
-    	X_val, y_val, 
-    	)
+#     model_path = models[i].train(
+#     	X_train, y_train, 
+#     	X_val, y_val, 
+#     	)
 
 # config = Config('config.json')
 # model_folder = 'trained_models/basic_model'
@@ -89,5 +91,44 @@ for i in range(1):
 1 data augmentation
 2 grid search, random search, oscar
 3. transfer learning
-4. cpu, gpu, multithread
+4. cpu, gpu, multithread, graph
 """
+
+"""
+transfer learning
+"""
+# config = Config('config_files/transfer_learning/test.json')
+# model_folder = 'trained_models/transfer_learning_model/transfer_learning/'
+# filename = 'test.ckpt'
+# model = transfer_learning_model(config, model_folder, filename)
+
+# # run the model to train
+# model_path = model.train(
+#   data=X_train, labels=y_train, 
+#   val_data=X_val, val_labels=y_val, 
+#   original_model_path="trained_models/basic_model/tuning_reg/test0.ckpt",
+#   reuse_var_scope="Conv_Layers",
+#   train_var_scope="Fully_connected"
+#   )
+
+# oldGraph = tf.Graph()
+# saver = tf.train.Saver()
+with tf.Session() as sess:
+        saver = tf.train.import_meta_graph("trained_models/basic_model/tuning_reg/test0.ckpt.meta")
+        saver.restore(sess, "trained_models/basic_model/tuning_reg/test0.ckpt")
+
+        # graph = tf.get_default_graph()
+        # print(tf.get_collection(tf.GraphKeys.TRAINABLE_VARIABLES, scope="Conv_Layers"))
+        kernel = tf.global_variables("Conv_Layers/conv_layer0/conv0/kernel:0")[0].eval()
+
+tf.reset_default_graph()
+with tf.Session() as sess:
+        saver = tf.train.import_meta_graph("trained_models/transfer_learning_model/transfer_learning/test.ckpt.meta")
+        saver.restore(sess, "trained_models/transfer_learning_model/transfer_learning/test.ckpt")
+
+        # graph = tf.get_default_graph()
+        # print(tf.get_collection(tf.GraphKeys.TRAINABLE_VARIABLES, scope="Conv_Layers"))
+        kernel1 = tf.global_variables("Conv_Layers/conv_layer0/conv0/kernel:0")[0].eval()
+
+# with tf.Session() as sess:
+print(kernel1 == kernel)

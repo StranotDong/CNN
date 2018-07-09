@@ -25,15 +25,17 @@ def config_generator(folder, filename, **configs):
 	return config_dict
 
 
-folder = 'config_files/reg_tuning/'
+folder = 'config_files/transfer_learning/'
 filename = 'test.json'
 
 config_dict = config_generator(
 	folder,
 	filename,
-	epoch=5,
+	epoch=1,
 	val_every=500,
 	batch_train_stats_every=1,
 	batch_norm=True,
-	dropout=True
+	dropout=True,
+	num_hidden_layers=0,
+	hidden_layer_sizes=[]
 )
